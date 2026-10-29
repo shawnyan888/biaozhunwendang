@@ -32,6 +32,20 @@ Markdown 覆盖范围：
     管道表格（首行表头）、围栏代码块（等宽字体 + 浅底纹、保留空格）、引用块、分隔线（忽略）、
     行内 `代码` 与 **加粗**、行内与独立成行的图片。
 
+代码语法高亮（根据围栏信息串自动上色，缺省开启，--no-highlight 关闭）：
+    * python：关键字紫加粗、字符串红、# 注释灰斜、数字橙、内建函数蓝，三引号 docstring
+      支持跨行（整段文本按字符串上色）；
+    * bash/sh/zsh/console/powershell/cmd/batch：命令行与内建命令蓝、-参数 绿、
+      $VAR / ${VAR} 蓝、# 注释灰斜、"…" 与 '…' 红，PowerShell 的 Verb-Noun 命令同样识别；
+    * yaml/yml/toml/ini：键名深蓝、值里 true/false/null 紫、锚点与 tag 灰、# 注释灰斜；
+    * json：键名深蓝、字符串红、数字橙、true/false/null 紫、括号标点灰；
+    * gitignore：注释灰斜、! 取反与 * 通配体面上色；markdown：标题、代码、加粗、链接分层上色；
+    * javascript/typescript/java/go/c/cpp/rust/php… 走 C 系规则（// 与 /* */ 注释、字符串、
+      关键字、数字、预处理指令）；sql、xml/html/vue 各自有专门的词法规则；
+    * 其它任何未登记的语言名走通用规则（# / // / -- 注释、字符串、数字、$变量），
+      不丢字、不上错的色；无信息串或 text/txt/plain 的代码块保持单色，输出与旧版一致。
+    配色集中在 COLOR_SYNTAX，语言→词法家族映射在 LANG_FAMILY，加新语言只需加一条规则表。
+
 图片支持：
     * 语法：![说明](路径) —— 兼容 ![说明](路径 "标题")、![说明](<带 空格.png>)、
       <img src="…" alt="…">；
@@ -763,6 +777,278 @@ def style_lead(doc, text, size, bold=True, color=COLOR_HEAD, border=False, align
     return para
 
 
+# ---------------------------------------------------------------- 语法高亮
+# 代码块配色（F7F9FB 浅底上保证可读）：关键字紫、字符串红、注释灰斜、数字橙、命令/内建蓝、选项绿
+COLOR_SYNTAX = {
+    "plain": "1A1A1A",
+    "comment": "7F8C8D",
+    "string": "B03A2E",
+    "keyword": "8E44AD",
+    "builtin": "1F6FB2",
+    "variable": "1F6FB2",
+    "number": "B9770E",
+    "option": "0F7B6C",
+    "key": "1F4E79",
+    "punctuation": "5D6D7E",
+    "meta": "8A9AAB",
+}
+
+# 围栏信息串 → 短名（统一大小写与常见缩写）
+LANG_ALIASES = {
+    "py": "python", "python3": "python", "pycon": "python",
+    "sh": "bash", "shell": "bash", "zsh": "bash", "console": "bash",
+    "ps": "powershell", "ps1": "powershell", "pwsh": "powershell",
+    "yml": "yaml", "md": "markdown", "js": "javascript", "ts": "typescript",
+    "txt": "text", "plain": "text", "plaintext": "text",
+}
+
+# 语言 → 词法家族；未登记但有信息串的语言落到 generic（只认注释/字符串/数字/变量）
+LANG_FAMILY = {
+    "python": "python",
+    "json": "json", "jsonc": "json", "json5": "json",
+    "yaml": "yaml", "toml": "yaml", "ini": "yaml", "conf": "yaml", "properties": "yaml",
+    "bash": "shell", "powershell": "shell", "batch": "shell", "cmd": "shell",
+    "dockerfile": "shell", "makefile": "shell", "shellscript": "shell",
+    "gitignore": "gitignore", "ignore": "gitignore", "gitattributes": "gitignore",
+    "markdown": "markdown",
+    "javascript": "clike", "typescript": "clike", "java": "clike", "go": "clike",
+    "c": "clike", "cpp": "clike", "csharp": "clike", "rust": "clike", "php": "clike",
+    "kotlin": "clike", "swift": "clike", "dart": "clike", "scala": "clike",
+    "sql": "sql",
+    "xml": "markup", "html": "markup", "vue": "markup",
+}
+
+SHELL_RULES = (
+    ("comment", r"(?:^|(?<=\s))#[^\n]*", "comment"),
+    ("dq", r'"(?:\\.|[^"\\])*"', "string"),
+    ("sq", r"'(?:\\.|[^'\\])*'", "string"),
+    ("var", r"\$\{[^}]*\}|\$\([^)]*\)|\$[A-Za-z_]\w*|%[A-Za-z_]\w*%", "variable"),
+    ("cmdlet", r"\b[A-Z][A-Za-z]+-[A-Z][A-Za-z]+\b", "builtin"),
+    ("opt", r"(?<![\w-])--?[A-Za-z][\w.-]*", "option"),
+    ("kw", r"\b(?:if|then|else|elif|fi|for|while|until|do|done|case|esac|function|return"
+           r"|in|select|begin|process|param|try|catch|finally|throw|switch|foreach"
+           r"|break|continue|export|local|readonly|alias|source|set|unset|eval)\b", "keyword"),
+    ("bi", r"\b(?:echo|printf|read|cd|pwd|exit|exec|sudo|git|dvc|python|python3|pip|npm|node"
+           r"|docker|kubectl|curl|wget|ssh|scp|cat|grep|sed|awk|find|xargs|tee|head|tail|wc"
+           r"|sort|uniq|diff|rm|cp|mv|mkdir|touch|chmod|chown|ls|env|which|systemctl"
+           r"|Get-[A-Za-z]+|Set-[A-Za-z]+|New-[A-Za-z]+|Remove-[A-Za-z]+|Test-[A-Za-z]+)\b",
+     "builtin"),
+    ("num", r"\b\d+(?:\.\d+)?\b", "number"),
+    ("op", r"[|&;<>()\[\]{}]", "punctuation"),
+)
+
+PYTHON_RULES = (
+    ("comment", r"#[^\n]*", "comment"),
+    ("deco", r"^[ \t]*@[\w.]+", "meta"),
+    ("doc", r'"""[\s\S]*?"""|\'\'\'[\s\S]*?\'\'\'', "string"),
+    ("dq", r'"(?:\\.|[^"\\])*"', "string"),
+    ("sq", r"'(?:\\.|[^'\\])*'", "string"),
+    ("kw", r"\b(?:def|class|return|if|elif|else|for|while|import|from|as|with|try|except"
+           r"|finally|raise|lambda|pass|break|continue|global|nonlocal|assert|yield|del"
+           r"|in|is|not|and|or|async|await|match|case)\b", "keyword"),
+    ("const", r"\b(?:None|True|False)\b", "builtin"),
+    ("bi", r"\b(?:self|cls|print|len|range|open|str|int|float|bool|list|dict|set|tuple"
+           r"|enumerate|zip|sorted|sum|min|max|abs|round|isinstance|getattr|setattr"
+           r"|super|format|input|type|map|filter|any|all|reversed)\b", "builtin"),
+    ("num", r"\b\d+(?:\.\d+)?\b", "number"),
+    ("op", r"[+\-*/%=<>!&|^~@]+", "punctuation"),
+)
+
+JSON_RULES = (
+    ("key", r'"(?:\\.|[^"\\])*"(?=[ \t]*:)', "key"),
+    ("str", r'"(?:\\.|[^"\\])*"', "string"),
+    ("kw", r"\b(?:true|false|null)\b", "keyword"),
+    ("num", r"-?\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b", "number"),
+    ("op", r"[{}\[\],:]", "punctuation"),
+)
+
+YAML_RULES = (
+    ("comment", r"(?:^|(?<=\s))#[^\n]*", "comment"),
+    ("key", r"^[ \t]*(?:-[ \t]+)?[\w./\"'-]+(?=[ \t]*:)", "key"),
+    ("meta", r"[&*!][\w:./-]+", "meta"),
+    ("str", r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'', "string"),
+    ("kw", r"\b(?:true|false|null|yes|no|on|off)\b", "keyword"),
+    ("num", r"\b\d+(?:\.\d+)?\b", "number"),
+    ("op", r"[\[\]{},|>]", "punctuation"),
+)
+
+GITIGNORE_RULES = (
+    ("comment", r"(?:^|(?<=\s))#[^\n]*", "comment"),
+    ("meta", r"^!", "punctuation"),
+    ("str", r"\*\*?|\?", "keyword"),
+)
+
+MARKDOWN_RULES = (
+    ("heading", r"^[ \t]{0,3}#{1,6} [^\n]*", "key"),
+    ("fence", r"^[ \t]{0,3}(?:`{3,}|~{3,})[^\n]*", "meta"),
+    ("quote", r"^[ \t]{0,3}>[^\n]*", "comment"),
+    ("list", r"^[ \t]*(?:[-*+]|\d+[.)])(?=[ \t])", "option"),
+    ("code", r"`[^`\n]*`", "string"),
+    ("bold", r"\*\*[^*\n]+\*\*", "keyword"),
+    ("link", r"!?\[[^\]\n]*\]\([^)\n]*\)", "builtin"),
+)
+
+CLIKE_RULES = (
+    ("comment", r"//[^\n]*", "comment"),
+    ("block", r"/\*[\s\S]*?\*/", "comment"),
+    ("directive", r"^[ \t]*#[ \t]*(?:include|define|ifdef|ifndef|endif|pragma|undef|import)[^\n]*",
+     "meta"),
+    ("str", r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|`(?:\\.|[^`\\])*`', "string"),
+    ("kw", r"\b(?:if|else|for|while|do|switch|case|default|break|continue|return|function"
+           r"|class|struct|enum|interface|extends|implements|import|export|from|const|let|var"
+           r"|new|delete|typeof|instanceof|this|super|public|private|protected|static|final"
+           r"|void|int|float|double|char|bool|boolean|string|true|false|null|undefined|async"
+           r"|await|try|catch|finally|throw|package|fn|use|pub|mut|go|defer|func|type|namespace"
+           r"|using|readonly|abstract|override|virtual|yield|in|of|is|as|implements)\b", "keyword"),
+    ("num", r"\b(?:0[xX][0-9a-fA-F]+|\d+(?:\.\d+)?)\b", "number"),
+    ("op", r"[{}()\[\];,.:]", "punctuation"),
+)
+
+SQL_RULES = (
+    ("comment", r"--[^\n]*", "comment"),
+    ("block", r"/\*[\s\S]*?\*/", "comment"),
+    ("str", r"'(?:\\.|[^'\\])*'", "string"),
+    ("kw", r"\b(?:select|from|where|insert|into|values|update|set|delete|create|table|alter"
+           r"|drop|index|join|left|right|inner|outer|on|group|by|order|having|limit|offset"
+           r"|as|and|or|not|null|is|in|exists|union|all|distinct|case|when|then|else|end"
+           r"|primary|key|foreign|references|default|constraint|begin|commit|rollback"
+           r"|transaction|with|returning)\b", "keyword"),
+    ("num", r"\b\d+(?:\.\d+)?\b", "number"),
+    ("op", r"[(),;]", "punctuation"),
+)
+
+MARKUP_RULES = (
+    ("comment", r"<!--[\s\S]*?-->", "comment"),
+    ("tag", r"</?[A-Za-z][\w:.-]*", "keyword"),
+    ("attr", r"\b[\w:.-]+(?==)", "builtin"),
+    ("str", r'"[^"]*"|\'[^\']*\'', "string"),
+    ("entity", r"&[A-Za-z#0-9]+;", "number"),
+    ("op", r"/>|>", "punctuation"),
+)
+
+GENERIC_RULES = (
+    ("block", r"/\*[\s\S]*?\*/", "comment"),
+    ("comment", r"(?:^|(?<=\s))(?:#|//)[^\n]*", "comment"),
+    ("str", r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'', "string"),
+    ("var", r"\$\{?[A-Za-z_]\w*\}?|%[A-Za-z_]\w*%", "variable"),
+    ("num", r"\b\d+(?:\.\d+)?\b", "number"),
+)
+
+FAMILY_RULES = {
+    "python": PYTHON_RULES,
+    "json": JSON_RULES,
+    "yaml": YAML_RULES,
+    "shell": SHELL_RULES,
+    "gitignore": GITIGNORE_RULES,
+    "markdown": MARKDOWN_RULES,
+    "clike": CLIKE_RULES,
+    "sql": SQL_RULES,
+    "markup": MARKUP_RULES,
+    "generic": GENERIC_RULES,
+}
+_SCANNERS = {}
+
+
+def normalize_lang(info):
+    """围栏信息串归一为短名：取首个词，去掉 {.py} / python: 这类写法，再查缩写表。"""
+    token = (info or "").strip().split()[0] if (info or "").strip() else ""
+    token = token.strip("{}.\"'").rstrip(":").lower()
+    if not token:
+        return ""
+    return LANG_ALIASES.get(token, token)
+
+
+def scanner(family):
+    """按家族编译合并正则（首次使用时缓存），返回 (编译后的正则, 组名 → 样式)。"""
+    if family not in _SCANNERS:
+        parts, styles = [], {}
+        for name, pattern, style in FAMILY_RULES[family]:
+            parts.append("(?P<%s>%s)" % (name, pattern))
+            styles[name] = style
+        _SCANNERS[family] = (re.compile("|".join(parts)), styles)
+    return _SCANNERS[family]
+
+
+def scan_line(family, line):
+    """把一行切成 (文本, 样式) 片段；未命中的部分按 plain，保证原文一字不丢。"""
+    regex, styles = scanner(family)
+    spans, pos = [], 0
+    for match in regex.finditer(line):
+        if match.start() > pos:
+            spans.append((line[pos:match.start()], "plain"))
+        spans.append((match.group(0), styles[match.lastgroup]))
+        pos = match.end()
+    if pos < len(line):
+        spans.append((line[pos:], "plain"))
+    return spans
+
+
+def open_triple(line):
+    """扫描一行，若行尾停在三引号字符串内部，返回该三引号的起始下标（否则 None）。"""
+    index, total = 0, len(line)
+    while index < total:
+        char = line[index]
+        if char == "#":
+            return None
+        if line.startswith('"""', index) or line.startswith("'''", index):
+            quote = line[index:index + 3]
+            stop = line.find(quote, index + 3)
+            if stop == -1:
+                return index
+            index = stop + 3
+            continue
+        if char in "\"'":
+            stop = index + 1
+            while stop < total:
+                if line[stop] == "\\":
+                    stop += 2
+                    continue
+                if line[stop] == char:
+                    break
+                stop += 1
+            index = stop + 1
+            continue
+        index += 1
+    return None
+
+
+def python_spans(line, state):
+    """python 行高亮：跨行的三引号字符串（docstring）靠 state 记忆，其余交给通用扫描器。"""
+    quote = state.get("quote")
+    if quote:
+        stop = line.find(quote)
+        if stop == -1:
+            return [(line, "string")]
+        state.pop("quote", None)
+        return [(line[:stop + 3], "string")] + scan_line("python", line[stop + 3:])
+    start = open_triple(line)
+    if start is not None:
+        state["quote"] = line[start:start + 3]
+        head = scan_line("python", line[:start]) if start else []
+        return head + [(line[start:], "string")]
+    return scan_line("python", line)
+
+
+def highlight_line(lang, line, state):
+    """按语言把一行代码切成 (文本, 样式)；无信息串或 text 类语言返回整行单色。"""
+    if not lang or lang == "text":
+        return [(line, "plain")]
+    family = LANG_FAMILY.get(lang) or "generic"  # 未登记的语言走通用规则，不丢字也不空白
+    if family == "python":
+        return python_spans(line, state)
+    return scan_line(family, line)
+
+
+def add_code_line(para, text, style):
+    """把一段高亮结果写入段落：关键字加粗、注释斜体，其余按调色板取色。"""
+    run = para.add_run(text)
+    set_run_font(run, CODE_PT, color=COLOR_SYNTAX.get(style, COLOR_SYNTAX["plain"]),
+                 bold=True if style == "keyword" else None, mono=True)
+    if style == "comment":
+        run.italic = True
+    return run
+
+
 # ---------------------------------------------------------------- 各类块渲染
 def add_paragraph_block(doc, text, ctx=None, indent=0):
     para = doc.add_paragraph()
@@ -913,8 +1199,12 @@ def add_table_block(doc, rows, ctx=None):
     add_spacer(doc, 6)
 
 
-def add_code_block(doc, lines, ctx=None):
-    """代码块放进单格表格：等宽字体 + 浅底纹，逐行渲染以保留原始空格。"""
+def add_code_block(doc, lines, ctx=None, lang=""):
+    """代码块放进单格表格：等宽字体 + 浅底纹，逐行渲染以保留原始空格。
+
+    lang 为围栏信息串归一后的短名（python / bash / powershell / yaml …），据此逐行上色；
+    无信息串、text 类语言或 --no-highlight 时整块单色，与旧版输出一致。
+    """
     table = doc.add_table(rows=1, cols=1)
     table.autofit = False
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
@@ -925,6 +1215,8 @@ def add_code_block(doc, lines, ctx=None):
     shade_cell(cell, SHADE_CODE)
     cell_padding(cell)
 
+    colored = bool(lang) and getattr(ctx, "highlight", True)
+    state = {}  # 跨行状态（目前只有 python 的三引号字符串）
     for index, line in enumerate(lines):
         para = cell.paragraphs[0] if index == 0 else cell.add_paragraph()
         fmt = para.paragraph_format
@@ -933,8 +1225,13 @@ def add_code_block(doc, lines, ctx=None):
         fmt.line_spacing = 1.0
         if getattr(ctx, "justify", False):  # 代码行不能被两端对齐拉开空格
             para.alignment = WD_ALIGN_PARAGRAPH.LEFT
-        run = para.add_run(line if line else " ")
-        set_run_font(run, CODE_PT, color="1A1A1A", mono=True)
+        if not colored:
+            run = para.add_run(line if line else " ")
+            set_run_font(run, CODE_PT, color=COLOR_SYNTAX["plain"], mono=True)
+            continue
+        spans = [span for span in highlight_line(lang, line, state) if span[0]]
+        for text, style in spans or [(" ", "plain")]:
+            add_code_line(para, text, style)
     # 短代码块整块不拆；长清单允许跨页续排，避免整页留白。
     if len(lines) <= CODE_KEEP_LINES:
         keep_row_together(table.rows[0])
@@ -1110,13 +1407,14 @@ def parse_blocks(lines):
 
         if stripped.startswith("```") or stripped.startswith("~~~"):
             fence = stripped[:3]
+            lang = normalize_lang(stripped[3:])
             index += 1
             body = []
             while index < total and not lines[index].strip().startswith(fence):
                 body.append(lines[index].rstrip())
                 index += 1
             index += 1
-            blocks.append({"type": "code", "lines": body})
+            blocks.append({"type": "code", "lines": body, "lang": lang})
             continue
 
         if stripped.startswith("|") and stripped.count("|") >= 2:
@@ -1242,7 +1540,7 @@ def render_body(doc, blocks, cfg):
             if kind == "table":
                 add_table_block(doc, block["rows"], ctx=cfg)
             elif kind == "code":
-                add_code_block(doc, block["lines"], ctx=cfg)
+                add_code_block(doc, block["lines"], ctx=cfg, lang=block.get("lang", ""))
             else:
                 add_image_block(doc, block["alt"], block["src"], cfg)
             last_para = None
@@ -1344,6 +1642,8 @@ def parse_args(argv):
                         help="图片相对路径的基准目录，缺省为 Markdown 文件所在目录")
     parser.add_argument("--no-caption", action="store_true",
                         help="不把图片的 alt 文字渲染为居中图注")
+    parser.add_argument("--no-highlight", action="store_true",
+                        help="关闭代码块的语法高亮（整块单色，与旧版输出一致）")
     parser.add_argument("--page-size", type=parse_page_size, default="a4", metavar="A4|A3|Letter",
                         help="纸张尺寸，缺省 A4；也可写 a4/a3/letter")
     parser.add_argument("--margin", type=parse_margin, default=None, metavar="上,下,左,右",
@@ -1396,6 +1696,7 @@ def main(argv=None):
     args.toc = not args.no_toc
     args.update_toc = not args.no_word
     args.caption = not args.no_caption
+    args.highlight = not args.no_highlight
     args.image_width_pct = min(1.0, max(0.1, args.image_width / 100.0))
     args.base_dir = Path(args.image_dir).expanduser().resolve() if args.image_dir else md_path.parent
     args.layout = layout
